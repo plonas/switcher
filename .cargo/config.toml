@@ -1,0 +1,16 @@
+[alias]
+build-firmware = "build -p switcher-firmware --target thumbv7em-none-eabihf"
+check-firmware = "check -p switcher-firmware --target thumbv7em-none-eabihf"
+run-firmware = "run -p switcher-firmware --target thumbv7em-none-eabihf"
+
+[target.thumbv7em-none-eabihf]
+runner = "probe-rs run --chip nRF52840_xxAA"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+debug = true
+lto = true

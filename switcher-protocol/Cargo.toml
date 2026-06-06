@@ -1,0 +1,18 @@
+[package]
+name = "switcher-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+std = []
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[lib]
+name = "switcher_protocol"
+path = "src/lib.rs"
