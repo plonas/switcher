@@ -11,6 +11,7 @@ serde = ["dep:serde"]
 std = []
 
 [dependencies]
+defmt.workspace = true
 serde = { workspace = true, optional = true }
 
 [lib]

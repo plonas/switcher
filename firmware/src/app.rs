@@ -1,3 +1,4 @@
+use defmt::info;
 use switcher_protocol::{DeviceIdentity, HealthCode, HealthStatus, RelayCommand, RelayState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +34,7 @@ impl FirmwareApp {
             RelayCommand::On => RelayState::On,
             RelayCommand::Toggle => self.relay_state.toggle(),
         };
+        info!("relay command {:?} -> {:?}", command, self.relay_state);
 
         self.relay_state
     }
@@ -43,6 +45,7 @@ impl FirmwareApp {
 
     pub fn set_last_error(&mut self, error: HealthCode) {
         self.last_error = error;
+        info!("last_error={:?}", error);
     }
 
     pub const fn relay_state(&self) -> RelayState {

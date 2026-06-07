@@ -1,4 +1,4 @@
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::OutputPin;
 use nrf52840_hal::gpio::{Output, Pin, PushPull};
 use switcher_protocol::RelayState;
 

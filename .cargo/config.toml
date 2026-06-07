@@ -2,9 +2,14 @@
 build-firmware = "build -p switcher-firmware --target thumbv7em-none-eabihf"
 check-firmware = "check -p switcher-firmware --target thumbv7em-none-eabihf"
 run-firmware = "run -p switcher-firmware --target thumbv7em-none-eabihf"
+hex-firmware = "objcopy -p switcher-firmware --bin switcher-firmware --target thumbv7em-none-eabihf -- -O ihex target/thumbv7em-none-eabihf/debug/switcher-firmware.hex"
 
 [target.thumbv7em-none-eabihf]
-runner = "probe-rs run --chip nRF52840_xxAA"
+runner = "probe-rs run --chip nRF52840_xxAA --rtt-scan-memory"
+rustflags = [
+    "-C", "link-arg=-Tlink.x",
+    "-C", "link-arg=-Tdefmt.x",
+]
 
 [profile.dev]
 panic = "abort"
@@ -14,3 +19,6 @@ panic = "abort"
 codegen-units = 1
 debug = true
 lto = true
+
+[env]
+DEFMT_LOG = "trace"

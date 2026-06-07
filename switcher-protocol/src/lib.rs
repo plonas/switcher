@@ -15,7 +15,7 @@ pub const COMMAND_UUID: &str = "0f0e0d0c-0b0a-4900-8102-001122334455";
 pub const HEALTH_UUID: &str = "0f0e0d0c-0b0a-4900-8103-001122334455";
 pub const IDENTITY_UUID: &str = "0f0e0d0c-0b0a-4900-8104-001122334455";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[repr(u8)]
 pub enum RelayCommand {
@@ -30,7 +30,7 @@ impl RelayCommand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[repr(u8)]
 pub enum RelayState {
@@ -59,7 +59,7 @@ impl RelayState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[repr(u8)]
 pub enum HealthCode {
@@ -68,7 +68,7 @@ pub enum HealthCode {
     InternalError = 2,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, defmt::Format)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct HealthStatus {
     pub protocol_version: u8,
@@ -99,7 +99,7 @@ impl HealthStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, defmt::Format)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DeviceIdentity {
     pub protocol_version: u8,
@@ -127,7 +127,7 @@ impl DeviceIdentity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum ProtocolError {
     WrongLength,
     InvalidCommand(u8),

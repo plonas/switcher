@@ -16,24 +16,26 @@ authors = ["Damian"]
 anyhow = "1.0.86"
 async-trait = "0.1.81"
 async-io = "2.6.0"
-btleplug = "0.11.6"
-embassy-time = { version = "0.5.1", default-features = false, features = ["std", "generic-queue-64"] }
-cortex-m = "0.7.7"
+btleplug = "0.12.0"
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.5"
-embedded-hal = "0.2.7"
+defmt = "1.1.0"
+defmt-rtt = "1.2.0"
+embassy-time = { version = "0.5.1", default-features = false, features = ["std", "generic-queue-64"] }
+embedded-hal = "1.0.0"
 embassy-futures = "0.1.2"
 env_logger = "0.11.8"
 futures-lite = "2.6.1"
 futures = "0.3.31"
-heapless = "0.8.0"
+heapless = "0.9.3"
 log = "0.4.22"
 nrf52840-hal = "0.19.0"
-panic-halt = "1.0.0"
-rand = "0.8.5"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+rand = "0.10.1"
 rs-matter = { git = "https://github.com/project-chip/rs-matter.git", rev = "e8b0b0cbb20bf312a9c52fc1ee56541037a3b9c9", default-features = false, features = ["std", "rustcrypto", "zeroconf", "log"] }
 serde = { version = "1.0.210", default-features = false, features = ["derive"] }
 serde_json = "1.0.128"
-thiserror = "2.0.11"
+thiserror = "2.0.18"
 tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uuid = "1.11.0"
 
