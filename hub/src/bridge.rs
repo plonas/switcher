@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use log::{info, warn};
 use switcher_protocol::{DeviceIdentity, HealthStatus, RelayCommand, RelayState};
-use tokio::sync::{broadcast, watch, Mutex};
+use tokio::sync::{Mutex, broadcast, watch};
 
 use crate::ble::{BleBridgeClient, BleNotification};
 
@@ -208,8 +208,24 @@ mod tests {
         bridge.connect().await.unwrap();
         bridge.start_notification_task().await;
 
-        assert_eq!(bridge.set_state(RelayState::On).await.unwrap(), RelayState::On);
+        assert_eq!(
+            bridge.set_state(RelayState::On).await.unwrap(),
+            RelayState::On
+        );
         assert_eq!(bridge.toggle().await.unwrap(), RelayState::Off);
         assert_eq!(bridge.status().await.relay_state, RelayState::Off);
+    }
+
+    #[tokio::test]
+    async fn bridge_marks_disconnected_after_command_failure() {
+        let client = MockBleClient::new();
+        let bridge = RelayBridge::new(client.clone());
+        bridge.connect().await.unwrap();
+
+        client.disconnect().await;
+
+        let error = bridge.toggle().await.unwrap_err();
+        assert!(error.to_string().contains("disconnected"));
+        assert!(!bridge.status().await.connected);
     }
 }

@@ -31,7 +31,7 @@ heapless = "0.9.3"
 log = "0.4.22"
 nrf52840-hal = "0.19.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-rand = "0.10.1"
+rand = "0.8.5"
 rs-matter = { git = "https://github.com/project-chip/rs-matter.git", rev = "e8b0b0cbb20bf312a9c52fc1ee56541037a3b9c9", default-features = false, features = ["std", "rustcrypto", "zeroconf", "log"] }
 serde = { version = "1.0.210", default-features = false, features = ["derive"] }
 serde_json = "1.0.128"

@@ -1,0 +1,32 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Protocol tests
+        run: cargo test -p switcher-protocol
+
+      - name: Hub tests
+        run: cargo test -p switcher-hub
+
+      - name: Matter build
+        run: cargo check -p switcher-hub --features matter
+
+      - name: Firmware build
+        run: cargo check-firmware

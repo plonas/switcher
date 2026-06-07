@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use btleplug::{
     api::{
@@ -11,10 +11,10 @@ use btleplug::{
 };
 use futures::StreamExt;
 use switcher_protocol::{
-    DeviceIdentity, HealthStatus, RelayCommand, RelayState, COMMAND_UUID, DEVICE_NAME_PREFIX,
-    HEALTH_UUID, IDENTITY_UUID, SERVICE_UUID, STATE_UUID,
+    COMMAND_UUID, DEVICE_NAME_PREFIX, DeviceIdentity, HEALTH_UUID, HealthStatus, IDENTITY_UUID,
+    RelayCommand, RelayState, SERVICE_UUID, STATE_UUID,
 };
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -40,6 +40,8 @@ pub struct MockBleClient {
 
 #[derive(Clone)]
 struct MockBleState {
+    connected: bool,
+    fail_connect_once: bool,
     state: RelayState,
     health: HealthStatus,
     identity: DeviceIdentity,
@@ -48,6 +50,8 @@ struct MockBleState {
 impl Default for MockBleState {
     fn default() -> Self {
         Self {
+            connected: false,
+            fail_connect_once: false,
             state: RelayState::Off,
             health: HealthStatus::new(1, 0, switcher_protocol::HealthCode::Ok),
             identity: DeviceIdentity::new(*b"dongle01", [0, 1, 0]),
@@ -63,6 +67,22 @@ impl MockBleClient {
             tx,
         }
     }
+
+    pub async fn disconnect(&self) {
+        self.inner.lock().await.connected = false;
+    }
+
+    pub async fn fail_next_connect(&self) {
+        self.inner.lock().await.fail_connect_once = true;
+    }
+
+    async fn ensure_connected(&self) -> Result<()> {
+        if self.inner.lock().await.connected {
+            Ok(())
+        } else {
+            Err(anyhow!("mock BLE client is disconnected"))
+        }
+    }
 }
 
 fn parse_uuid(input: &str) -> Result<Uuid> {
@@ -72,14 +92,23 @@ fn parse_uuid(input: &str) -> Result<Uuid> {
 #[async_trait]
 impl BleBridgeClient for MockBleClient {
     async fn connect(&self) -> Result<()> {
+        let mut inner = self.inner.lock().await;
+        if inner.fail_connect_once {
+            inner.fail_connect_once = false;
+            inner.connected = false;
+            return Err(anyhow!("mock BLE connect failed"));
+        }
+        inner.connected = true;
         Ok(())
     }
 
     async fn current_state(&self) -> Result<RelayState> {
+        self.ensure_connected().await?;
         Ok(self.inner.lock().await.state)
     }
 
     async fn send_command(&self, command: RelayCommand) -> Result<RelayState> {
+        self.ensure_connected().await?;
         let mut inner = self.inner.lock().await;
         inner.state = match command {
             RelayCommand::Off => RelayState::Off,
@@ -91,10 +120,12 @@ impl BleBridgeClient for MockBleClient {
     }
 
     async fn health(&self) -> Result<HealthStatus> {
+        self.ensure_connected().await?;
         Ok(self.inner.lock().await.health.clone())
     }
 
     async fn identity(&self) -> Result<DeviceIdentity> {
+        self.ensure_connected().await?;
         Ok(self.inner.lock().await.identity.clone())
     }
 
@@ -151,9 +182,7 @@ impl BtleplugClient {
                 .map(|name| name.starts_with(DEVICE_NAME_PREFIX))
                 .unwrap_or(false);
 
-            let matches_service = properties
-                .services
-                .contains(&parse_uuid(SERVICE_UUID)?);
+            let matches_service = properties.services.contains(&parse_uuid(SERVICE_UUID)?);
 
             if matches_name || matches_service {
                 peripheral.connect().await?;
@@ -178,7 +207,7 @@ impl BtleplugClient {
         let tx = self.tx.clone();
 
         tokio::spawn(async move {
-            while let Some(ValueNotification { uuid, value }) = notifications.next().await {
+            while let Some(ValueNotification { uuid, value, .. }) = notifications.next().await {
                 if uuid == parse_uuid(STATE_UUID).unwrap() {
                     if let Ok(state) = RelayState::try_from(value.as_slice()) {
                         let _ = tx.send(BleNotification { state });
@@ -254,10 +283,21 @@ impl BleBridgeClient for BtleplugClient {
     }
 }
 
-pub fn metadata_map(identity: &DeviceIdentity, health: &HealthStatus) -> HashMap<&'static str, String> {
+pub fn metadata_map(
+    identity: &DeviceIdentity,
+    health: &HealthStatus,
+) -> HashMap<&'static str, String> {
     let mut map = HashMap::new();
     map.insert("device_id", format!("{:02x?}", identity.device_id));
-    map.insert("firmware_version", format!("{}.{}.{}", identity.firmware_version[0], identity.firmware_version[1], identity.firmware_version[2]));
+    map.insert(
+        "firmware_version",
+        format!(
+            "{}.{}.{}",
+            identity.firmware_version[0],
+            identity.firmware_version[1],
+            identity.firmware_version[2]
+        ),
+    );
     map.insert("boot_count", health.boot_count.to_string());
     map
 }

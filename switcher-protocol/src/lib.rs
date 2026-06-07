@@ -235,7 +235,10 @@ mod tests {
     #[test]
     fn command_roundtrip() {
         let command = RelayCommand::Toggle;
-        assert_eq!(RelayCommand::try_from(command.encode().as_slice()), Ok(command));
+        assert_eq!(
+            RelayCommand::try_from(command.encode().as_slice()),
+            Ok(command)
+        );
     }
 
     #[test]

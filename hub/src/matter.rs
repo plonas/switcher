@@ -1,29 +1,33 @@
 #[cfg(feature = "matter")]
 use core::pin::pin;
-#[cfg(feature = "matter")]
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
 #[cfg(not(feature = "matter"))]
 use std::sync::Arc;
+#[cfg(feature = "matter")]
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[cfg(feature = "matter")]
 use anyhow::Result;
 #[cfg(not(feature = "matter"))]
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 #[cfg(feature = "matter")]
 use embassy_futures::select::select4;
 #[cfg(feature = "matter")]
 use log::{error, info};
 #[cfg(feature = "matter")]
-use rs_matter::crypto::{default_crypto, Crypto};
+use rs_matter::crypto::{Crypto, RngCore, default_crypto};
+#[cfg(feature = "matter")]
+use rs_matter::dm::IMBuffer;
 #[cfg(feature = "matter")]
 use rs_matter::dm::clusters::app::level_control::LevelControlHooks;
 #[cfg(feature = "matter")]
 use rs_matter::dm::clusters::app::on_off::{
     self, EffectVariantEnum, OnOffHandler, OnOffHooks, OutOfBandMessage, StartUpOnOffEnum,
 };
+#[cfg(feature = "matter")]
+use rs_matter::dm::clusters::basic_info::{BasicInfoConfig, PairingHintFlags};
 #[cfg(feature = "matter")]
 use rs_matter::dm::clusters::decl::on_off as on_off_cluster;
 #[cfg(feature = "matter")]
@@ -33,33 +37,27 @@ use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
 #[cfg(feature = "matter")]
 use rs_matter::dm::clusters::net_comm::SharedNetworks;
 #[cfg(feature = "matter")]
-use rs_matter::dm::clusters::{
-    basic_info::{BasicInfoConfig, PairingHintFlags},
-};
+use rs_matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
 #[cfg(feature = "matter")]
 use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_COMM};
-#[cfg(feature = "matter")]
-use rs_matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
 #[cfg(feature = "matter")]
 use rs_matter::dm::endpoints;
 #[cfg(feature = "matter")]
 use rs_matter::dm::events::NoEvents;
 #[cfg(feature = "matter")]
-use rs_matter::dm::networks::eth::EthNetwork;
-#[cfg(feature = "matter")]
 use rs_matter::dm::networks::SysNetifs;
 #[cfg(feature = "matter")]
-use rs_matter::dm::subscriptions::Subscriptions;
+use rs_matter::dm::networks::eth::EthNetwork;
 #[cfg(feature = "matter")]
-use rs_matter::dm::IMBuffer;
+use rs_matter::dm::subscriptions::Subscriptions;
 #[cfg(feature = "matter")]
 use rs_matter::dm::{Async, DataModel, DataModelHandler, Dataver, Endpoint, EpClMatcher, Node};
 #[cfg(feature = "matter")]
 use rs_matter::error::Error;
 #[cfg(feature = "matter")]
-use rs_matter::pairing::qr::QrTextType;
-#[cfg(feature = "matter")]
 use rs_matter::pairing::DiscoveryCapabilities;
+#[cfg(feature = "matter")]
+use rs_matter::pairing::qr::QrTextType;
 #[cfg(feature = "matter")]
 use rs_matter::persist::{DirKvBlobStore, SharedKvBlobStore};
 #[cfg(feature = "matter")]
@@ -69,25 +67,25 @@ use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
 #[cfg(feature = "matter")]
 use rs_matter::tlv::Nullable;
 #[cfg(feature = "matter")]
-use rs_matter::transport::network::mdns::zeroconf::ZeroconfMdnsResponder;
-#[cfg(feature = "matter")]
 use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
+#[cfg(feature = "matter")]
+use rs_matter::transport::network::mdns::zeroconf::ZeroconfMdnsResponder;
 #[cfg(feature = "matter")]
 use rs_matter::utils::select::Coalesce;
 #[cfg(feature = "matter")]
 use rs_matter::utils::storage::pooled::PooledBuffers;
 #[cfg(feature = "matter")]
-use rs_matter::{clusters, devices, root_endpoint, with, Matter};
+use rs_matter::{Matter, clusters, devices, root_endpoint, with};
 #[cfg(feature = "matter")]
 use tokio::sync::{mpsc, watch};
 
+#[cfg(not(feature = "matter"))]
+use crate::{ble::BleBridgeClient, bridge::RelayBridge};
 #[cfg(feature = "matter")]
 use crate::{
     ble::BleBridgeClient,
     bridge::{BridgeStatus, RelayBridge},
 };
-#[cfg(not(feature = "matter"))]
-use crate::{ble::BleBridgeClient, bridge::RelayBridge};
 
 #[cfg(feature = "matter")]
 const BASIC_INFO: BasicInfoConfig<'static> = BasicInfoConfig {
@@ -185,11 +183,7 @@ where
 
         let (command_tx, mut command_rx) = mpsc::unbounded_channel();
         let hook = BleBackedOnOff::new(self.bridge.subscribe(), command_tx, initial);
-        let on_off_handler = OnOffHandler::new_standalone(
-            Dataver::new_rand(&mut rand),
-            1,
-            hook,
-        );
+        let on_off_handler = OnOffHandler::new_standalone(Dataver::new_rand(&mut rand), 1, hook);
 
         let bridge = self.bridge.clone();
         tokio::spawn(async move {
@@ -252,7 +246,7 @@ const NODE: Node<'static> = Node {
 
 #[cfg(feature = "matter")]
 fn dm_handler<'a, OH: OnOffHooks, LH: LevelControlHooks>(
-    mut rand: impl rand::RngCore + Copy,
+    mut rand: impl RngCore + Copy,
     on_off: &'a on_off::OnOffHandler<'a, OH, LH>,
 ) -> impl DataModelHandler + 'a {
     (
@@ -327,7 +321,9 @@ impl OnOffHooks for BleBackedOnOff {
 
     fn set_on_off(&self, on: bool) {
         self.current_state.store(on, Ordering::SeqCst);
-        let _ = self.command_tx.send(switcher_protocol::RelayState::from_bool(on));
+        let _ = self
+            .command_tx
+            .send(switcher_protocol::RelayState::from_bool(on));
     }
 
     fn start_up_on_off(&self) -> Nullable<StartUpOnOffEnum> {

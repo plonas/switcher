@@ -1,16 +1,10 @@
 use embedded_hal::digital::OutputPin;
-use nrf52840_hal::{
-    gpio::{
-        p0::Parts as P0Parts,
-        Level,
-        Output,
-        Pin,
-        PushPull,
-    },
-    pac::P0,
-};
 use nrf52840_hal::pac::uicr::regout0::VOUT_A;
 use nrf52840_hal::pac::{NVMC, UICR};
+use nrf52840_hal::{
+    gpio::{Level, Output, Pin, PushPull, p0::Parts as P0Parts},
+    pac::P0,
+};
 
 use crate::relay::RelayOutput;
 
@@ -75,10 +69,8 @@ pub fn relay_from_p0(port: P0) -> RelayOutput {
 
 pub fn outputs_from_p0(port: P0) -> (RelayOutput, StatusLedOutput) {
     let p0 = P0Parts::new(port);
-    let relay_pin: Pin<Output<PushPull>> =
-        p0.p0_13.into_push_pull_output(Level::Low).degrade();
-    let led_pin: Pin<Output<PushPull>> =
-        p0.p0_08.into_push_pull_output(Level::High).degrade();
+    let relay_pin: Pin<Output<PushPull>> = p0.p0_13.into_push_pull_output(Level::Low).degrade();
+    let led_pin: Pin<Output<PushPull>> = p0.p0_08.into_push_pull_output(Level::High).degrade();
 
     (RelayOutput::new(relay_pin), StatusLedOutput::new(led_pin))
 }

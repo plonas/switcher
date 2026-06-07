@@ -3,11 +3,11 @@ use std::{io::Write, path::PathBuf, sync::Arc};
 use anyhow::Result;
 use env_logger::Env;
 use log::{info, warn};
-use switcher_protocol::RelayState;
 use switcher_hub::{
-    persistence::PersistedBridgeState, BridgeStatus, BtleplugClient, MatterBridgeNode,
-    MatterNodeConfig, RelayBridge,
+    BridgeStatus, BtleplugClient, MatterBridgeNode, MatterNodeConfig, RelayBridge,
+    persistence::PersistedBridgeState,
 };
+use switcher_protocol::RelayState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
