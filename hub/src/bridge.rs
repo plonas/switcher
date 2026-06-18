@@ -104,6 +104,7 @@ where
                 let relay_state = match client.current_state().await {
                     Ok(state) => state,
                     Err(error) => {
+                        let _ = client.disconnect().await;
                         let mut guard = status.lock().await;
                         guard.connected = false;
                         let _ = watch_tx.send(guard.clone());

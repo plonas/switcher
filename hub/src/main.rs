@@ -11,7 +11,7 @@ use switcher_protocol::RelayState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+    env_logger::Builder::from_env(Env::default().default_filter_or("hub=info,btleplug=warn"))
         .format(|buf, record| writeln!(buf, "{}", record.args()))
         .init();
 

@@ -26,6 +26,7 @@ pub struct BleNotification {
 #[async_trait]
 pub trait BleBridgeClient: Send + Sync {
     async fn connect(&self) -> Result<()>;
+    async fn disconnect(&self) -> Result<()>;
     async fn current_state(&self) -> Result<RelayState>;
     async fn send_command(&self, command: RelayCommand) -> Result<RelayState>;
     async fn health(&self) -> Result<HealthStatus>;
@@ -103,6 +104,11 @@ impl BleBridgeClient for MockBleClient {
             return Err(anyhow!("mock BLE connect failed"));
         }
         inner.connected = true;
+        Ok(())
+    }
+
+    async fn disconnect(&self) -> Result<()> {
+        self.inner.lock().await.connected = false;
         Ok(())
     }
 
@@ -257,6 +263,17 @@ impl BtleplugClient {
         Ok(peripheral)
     }
 
+    async fn clear_peripheral(&self, disconnect: bool) -> Result<()> {
+        let previous = self.peripheral.lock().await.take();
+        if disconnect {
+            if let Some(peripheral) = previous {
+                let _ = peripheral.disconnect().await;
+            }
+        }
+        *self.current_address.lock().await = None;
+        Ok(())
+    }
+
     async fn probe_dongle_peripheral(&self, peripheral: Peripheral) -> Result<Option<Peripheral>> {
         let probe_id = peripheral.id();
         let connected = match self.connect_peripheral(peripheral.clone()).await {
@@ -381,6 +398,14 @@ impl BleBridgeClient for BtleplugClient {
     async fn connect(&self) -> Result<()> {
         let _ = self.ensure_peripheral().await?;
         Ok(())
+    }
+
+    async fn disconnect(&self) -> Result<()> {
+        // On macOS/CoreBluetooth, explicitly disconnecting a peripheral after a
+        // failed read can tear down btleplug's per-device event loop and make
+        // subsequent reconnect attempts unreliable. Dropping our cached handle
+        // is enough to force the next retry back through scanning/discovery.
+        self.clear_peripheral(false).await
     }
 
     async fn current_state(&self) -> Result<RelayState> {
