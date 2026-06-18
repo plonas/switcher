@@ -1619,6 +1619,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "hub"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-io",
+ "async-trait",
+ "btleplug",
+ "embassy-futures",
+ "embassy-time",
+ "env_logger",
+ "futures",
+ "futures-lite",
+ "log",
+ "rand",
+ "rs-matter",
+ "serde",
+ "serde_json",
+ "switcher-protocol",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3037,30 +3061,6 @@ name = "supports-unicode"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7401a30af6cb5818bb64852270bb722533397edcfc7344954a38f420819ece2"
-
-[[package]]
-name = "switcher-hub"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-io",
- "async-trait",
- "btleplug",
- "embassy-futures",
- "embassy-time",
- "env_logger",
- "futures",
- "futures-lite",
- "log",
- "rand",
- "rs-matter",
- "serde",
- "serde_json",
- "switcher-protocol",
- "thiserror 2.0.18",
- "tokio",
- "uuid",
-]
 
 [[package]]
 name = "switcher-protocol"

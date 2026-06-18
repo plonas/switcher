@@ -1,5 +1,5 @@
 [package]
-name = "switcher-hub"
+name = "hub"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -33,9 +33,9 @@ default = []
 matter = ["dep:rs-matter"]
 
 [lib]
-name = "switcher_hub"
+name = "hub"
 path = "src/lib.rs"
 
 [[bin]]
-name = "switcher-hub"
+name = "hub"
 path = "src/main.rs"

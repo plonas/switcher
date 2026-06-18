@@ -3,6 +3,9 @@ build-dongle = "build -p dongle --target thumbv7em-none-eabihf"
 check-dongle = "check -p dongle --target thumbv7em-none-eabihf"
 run-dongle = "run -p dongle --target thumbv7em-none-eabihf"
 hex-dongle = "objcopy -p dongle --bin dongle --target thumbv7em-none-eabihf -- -O ihex target/thumbv7em-none-eabihf/debug/dongle.hex"
+build-hub = "build -p hub"
+check-hub = "check -p hub"
+run-hub = "run -p hub"
 
 [target.thumbv7em-none-eabihf]
 runner = "probe-rs run --chip nRF52840_xxAA --rtt-scan-memory"

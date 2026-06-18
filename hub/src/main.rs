@@ -3,7 +3,7 @@ use std::{io::Write, path::PathBuf, sync::Arc};
 use anyhow::Result;
 use env_logger::Env;
 use log::{info, warn};
-use switcher_hub::{
+use hub::{
     BridgeStatus, BtleplugClient, MatterBridgeNode, MatterNodeConfig, RelayBridge,
     persistence::PersistedBridgeState,
 };

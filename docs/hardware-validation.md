@@ -6,15 +6,15 @@ Run these commands before flashing or commissioning:
 
 ```sh
 cargo test -p switcher-protocol
-cargo test -p switcher-hub
-cargo check -p switcher-hub --features matter
+cargo test -p hub
+cargo check -p hub --features matter
 cargo check-dongle
 ```
 
 For a live BLE sanity check against physical hardware, run the ignored hub test with an optional known address:
 
 ```sh
-DONGLE_BLE_ADDRESS=AA:BB:CC:DD:EE:FF cargo test -p switcher-hub btleplug_client_can_read_live_dongle -- --ignored
+DONGLE_BLE_ADDRESS=AA:BB:CC:DD:EE:FF cargo test -p hub btleplug_client_can_read_live_dongle -- --ignored
 ```
 
 ## BLE-only validation
