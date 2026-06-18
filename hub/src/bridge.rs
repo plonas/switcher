@@ -9,6 +9,7 @@ use crate::ble::{BleBridgeClient, BleNotification};
 
 #[derive(Debug, Clone)]
 pub struct BridgeStatus {
+    pub ble_address: Option<String>,
     pub connected: bool,
     pub relay_state: RelayState,
     pub health: Option<HealthStatus>,
@@ -18,6 +19,7 @@ pub struct BridgeStatus {
 impl Default for BridgeStatus {
     fn default() -> Self {
         Self {
+            ble_address: None,
             connected: false,
             relay_state: RelayState::Off,
             health: None,
@@ -116,6 +118,12 @@ where
 
                 {
                     let mut guard = status.lock().await;
+                    guard.ble_address = client
+                        .address()
+                        .await
+                        .ok()
+                        .flatten()
+                        .or(guard.ble_address.clone());
                     guard.connected = true;
                     guard.relay_state = relay_state;
                     guard.health = health;
@@ -183,8 +191,10 @@ where
         let relay_state = self.client.current_state().await?;
         let health = self.client.health().await.ok();
         let identity = self.client.identity().await.ok();
+        let ble_address = self.client.address().await.ok().flatten();
 
         self.update_status(|status| {
+            status.ble_address = ble_address;
             status.connected = true;
             status.relay_state = relay_state;
             status.health = health;

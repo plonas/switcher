@@ -43,6 +43,10 @@ impl FirmwareApp {
         self.uptime_seconds = self.uptime_seconds.saturating_add(elapsed_seconds);
     }
 
+    pub fn set_uptime_seconds(&mut self, uptime_seconds: u32) {
+        self.uptime_seconds = uptime_seconds;
+    }
+
     pub fn set_last_error(&mut self, error: HealthCode) {
         self.last_error = error;
         info!("last_error={:?}", error);

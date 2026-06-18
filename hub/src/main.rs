@@ -19,10 +19,11 @@ async fn main() -> Result<()> {
     let persisted = PersistedBridgeState::load(&persistence_path)?;
     info!("loaded persisted bridge state: {:?}", persisted.relay_state);
 
-    let client = BtleplugClient::new().await?;
+    let client = BtleplugClient::new(persisted.ble_address.clone()).await?;
     let bridge = Arc::new(RelayBridge::new_with_status(
         client,
         BridgeStatus {
+            ble_address: persisted.ble_address.clone(),
             connected: false,
             relay_state: persisted.relay_state.unwrap_or(RelayState::Off),
             health: persisted.health.clone(),
@@ -38,7 +39,7 @@ async fn main() -> Result<()> {
 
     let status = bridge.status().await;
     PersistedBridgeState {
-        ble_address: None,
+        ble_address: status.ble_address,
         relay_state: Some(status.relay_state),
         identity: status.identity,
         health: status.health,

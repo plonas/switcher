@@ -11,6 +11,12 @@ cargo check -p switcher-hub --features matter
 cargo check-firmware
 ```
 
+For a live BLE sanity check against physical hardware, run the ignored hub test with an optional known address:
+
+```sh
+SWITCHER_BLE_ADDRESS=AA:BB:CC:DD:EE:FF cargo test -p switcher-hub btleplug_client_can_read_live_dongle -- --ignored
+```
+
 ## BLE-only validation
 
 1. Flash `switcher-firmware` to the nRF52840 target.
@@ -24,6 +30,7 @@ cargo check-firmware
    - the status LED mirrors the relay state
    - the hub receives a state notification after each command
 5. Power-cycle or move the dongle out of range, then confirm the hub reports a disconnected bridge and recovers after the dongle returns.
+6. Restart the hub and confirm it prefers the last persisted BLE address when reconnecting.
 
 ## Matter bridge validation
 

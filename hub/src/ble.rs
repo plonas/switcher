@@ -29,6 +29,7 @@ pub trait BleBridgeClient: Send + Sync {
     async fn send_command(&self, command: RelayCommand) -> Result<RelayState>;
     async fn health(&self) -> Result<HealthStatus>;
     async fn identity(&self) -> Result<DeviceIdentity>;
+    async fn address(&self) -> Result<Option<String>>;
     fn subscribe(&self) -> broadcast::Receiver<BleNotification>;
 }
 
@@ -42,6 +43,7 @@ pub struct MockBleClient {
 struct MockBleState {
     connected: bool,
     fail_connect_once: bool,
+    address: Option<String>,
     state: RelayState,
     health: HealthStatus,
     identity: DeviceIdentity,
@@ -52,6 +54,7 @@ impl Default for MockBleState {
         Self {
             connected: false,
             fail_connect_once: false,
+            address: Some("AA:BB:CC:DD:EE:FF".into()),
             state: RelayState::Off,
             health: HealthStatus::new(1, 0, switcher_protocol::HealthCode::Ok),
             identity: DeviceIdentity::new(*b"dongle01", [0, 1, 0]),
@@ -129,6 +132,10 @@ impl BleBridgeClient for MockBleClient {
         Ok(self.inner.lock().await.identity.clone())
     }
 
+    async fn address(&self) -> Result<Option<String>> {
+        Ok(self.inner.lock().await.address.clone())
+    }
+
     fn subscribe(&self) -> broadcast::Receiver<BleNotification> {
         self.tx.subscribe()
     }
@@ -136,12 +143,14 @@ impl BleBridgeClient for MockBleClient {
 
 pub struct BtleplugClient {
     adapter: Adapter,
+    preferred_address: Option<String>,
+    current_address: Mutex<Option<String>>,
     peripheral: Mutex<Option<Peripheral>>,
     tx: broadcast::Sender<BleNotification>,
 }
 
 impl BtleplugClient {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(preferred_address: Option<String>) -> Result<Self> {
         let manager = Manager::new().await?;
         let adapter = manager
             .adapters()
@@ -154,6 +163,8 @@ impl BtleplugClient {
 
         Ok(Self {
             adapter,
+            preferred_address,
+            current_address: Mutex::new(None),
             peripheral: Mutex::new(None),
             tx,
         })
@@ -170,6 +181,10 @@ impl BtleplugClient {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         let peripherals = self.adapter.peripherals().await?;
+        if let Some(peripheral) = self.find_preferred_peripheral(&peripherals).await? {
+            return self.connect_peripheral(peripheral).await;
+        }
+
         for peripheral in peripherals {
             let properties = peripheral.properties().await?;
             let Some(properties) = properties else {
@@ -181,19 +196,53 @@ impl BtleplugClient {
                 .as_deref()
                 .map(|name| name.starts_with(DEVICE_NAME_PREFIX))
                 .unwrap_or(false);
-
             let matches_service = properties.services.contains(&parse_uuid(SERVICE_UUID)?);
 
             if matches_name || matches_service {
-                peripheral.connect().await?;
-                peripheral.discover_services().await?;
-                self.spawn_notifications(peripheral.clone()).await?;
-                *self.peripheral.lock().await = Some(peripheral.clone());
-                return Ok(peripheral);
+                return self.connect_peripheral(peripheral).await;
             }
         }
 
         Err(anyhow!("no matching dongle found"))
+    }
+
+    async fn find_preferred_peripheral(
+        &self,
+        peripherals: &[Peripheral],
+    ) -> Result<Option<Peripheral>> {
+        let Some(preferred) = self.preferred_address.as_deref() else {
+            return Ok(None);
+        };
+
+        for peripheral in peripherals {
+            let properties = peripheral.properties().await?;
+            let Some(properties) = properties else {
+                continue;
+            };
+
+            if properties
+                .address
+                .to_string()
+                .eq_ignore_ascii_case(preferred)
+            {
+                return Ok(Some(peripheral.clone()));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn connect_peripheral(&self, peripheral: Peripheral) -> Result<Peripheral> {
+        peripheral.connect().await?;
+        peripheral.discover_services().await?;
+        self.spawn_notifications(peripheral.clone()).await?;
+        let address = peripheral
+            .properties()
+            .await?
+            .and_then(|properties| normalize_ble_address(&properties.address.to_string()));
+        *self.current_address.lock().await = address;
+        *self.peripheral.lock().await = Some(peripheral.clone());
+        Ok(peripheral)
     }
 
     async fn spawn_notifications(&self, peripheral: Peripheral) -> Result<()> {
@@ -278,6 +327,10 @@ impl BleBridgeClient for BtleplugClient {
         Ok(DeviceIdentity::try_from(value.as_slice())?)
     }
 
+    async fn address(&self) -> Result<Option<String>> {
+        Ok(self.current_address.lock().await.clone())
+    }
+
     fn subscribe(&self) -> broadcast::Receiver<BleNotification> {
         self.tx.subscribe()
     }
@@ -300,4 +353,29 @@ pub fn metadata_map(
     );
     map.insert("boot_count", health.boot_count.to_string());
     map
+}
+
+fn normalize_ble_address(address: &str) -> Option<String> {
+    let trimmed = address.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("00:00:00:00:00:00") {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[cfg(test)]
+mod hardware_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires a physical switcher dongle advertising over BLE"]
+    async fn btleplug_client_can_read_live_dongle() {
+        let preferred = std::env::var("SWITCHER_BLE_ADDRESS").ok();
+        let client = BtleplugClient::new(preferred).await.unwrap();
+        client.connect().await.unwrap();
+        let _ = client.identity().await.unwrap();
+        let _ = client.health().await.unwrap();
+        let _ = client.current_state().await.unwrap();
+    }
 }

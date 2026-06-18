@@ -1,14 +1,13 @@
-use embedded_hal::digital::OutputPin;
-use nrf52840_hal::gpio::{Output, Pin, PushPull};
+use embassy_nrf::gpio::Output;
 use switcher_protocol::RelayState;
 
-pub struct RelayOutput {
-    pin: Pin<Output<PushPull>>,
+pub struct RelayOutput<'d> {
+    pin: Output<'d>,
     state: RelayState,
 }
 
-impl RelayOutput {
-    pub fn new(pin: Pin<Output<PushPull>>) -> Self {
+impl<'d> RelayOutput<'d> {
+    pub fn new(pin: Output<'d>) -> Self {
         Self {
             pin,
             state: RelayState::Off,

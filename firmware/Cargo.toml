@@ -10,12 +10,19 @@ cortex-m.workspace = true
 cortex-m-rt.workspace = true
 defmt.workspace = true
 defmt-rtt.workspace = true
-embedded-hal.workspace = true
+embassy-futures.workspace = true
 heapless.workspace = true
 log.workspace = true
-nrf52840-hal.workspace = true
 panic-probe.workspace = true
+static_cell = "2"
 switcher-protocol = { path = "../switcher-protocol", default-features = false }
+embassy-executor = { version = "0.10", default-features = false, features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-nrf = { version = "0.10", default-features = false, features = ["defmt", "time-driver-rtc1", "gpiote", "unstable-pac", "rt", "nrf52840"] }
+embassy-sync = { version = "0.8", features = ["defmt"] }
+embassy-time = { version = "0.5", default-features = false, features = ["defmt", "defmt-timestamp-uptime"] }
+nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc.git", rev = "e1fbb89a173dfc053ec4877d366f51804eac498d", default-features = false, features = ["defmt", "critical-section-impl", "nrf52840"] }
+nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc.git", rev = "e1fbb89a173dfc053ec4877d366f51804eac498d", default-features = false, features = ["defmt", "peripheral", "nrf52840"] }
+trouble-host = { version = "0.7.0", default-features = false, features = ["peripheral", "gatt", "derive", "default-packet-pool", "defmt"] }
 
 [lib]
 name = "switcher_firmware"
