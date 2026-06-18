@@ -1,5 +1,5 @@
 [package]
-name = "switcher-firmware"
+name = "dongle"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -25,9 +25,9 @@ nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc.git", rev = "e1fbb89a173d
 trouble-host = { version = "0.7.0", default-features = false, features = ["peripheral", "gatt", "derive", "default-packet-pool", "defmt"] }
 
 [lib]
-name = "switcher_firmware"
+name = "dongle"
 path = "src/lib.rs"
 
 [[bin]]
-name = "switcher-firmware"
+name = "dongle"
 path = "src/main.rs"

@@ -1,4 +1,4 @@
-# Switcher Hardware Validation
+# Dongle Hardware Validation
 
 ## Build matrix
 
@@ -8,18 +8,18 @@ Run these commands before flashing or commissioning:
 cargo test -p switcher-protocol
 cargo test -p switcher-hub
 cargo check -p switcher-hub --features matter
-cargo check-firmware
+cargo check-dongle
 ```
 
 For a live BLE sanity check against physical hardware, run the ignored hub test with an optional known address:
 
 ```sh
-SWITCHER_BLE_ADDRESS=AA:BB:CC:DD:EE:FF cargo test -p switcher-hub btleplug_client_can_read_live_dongle -- --ignored
+DONGLE_BLE_ADDRESS=AA:BB:CC:DD:EE:FF cargo test -p switcher-hub btleplug_client_can_read_live_dongle -- --ignored
 ```
 
 ## BLE-only validation
 
-1. Flash `switcher-firmware` to the nRF52840 target.
+1. Flash `dongle` to the nRF52840 target.
 2. Start the hub with BLE enabled and confirm it discovers the dongle by name or service UUID.
 3. Verify the hub can read:
    - relay state

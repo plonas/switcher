@@ -16,7 +16,7 @@ use crate::{
 
 const CONNECTIONS_MAX: usize = 1;
 const L2CAP_CHANNELS_MAX: usize = 2;
-const DEVICE_NAME: &str = "switcher-dongle01";
+const DEVICE_NAME: &str = "dongle01";
 const SERVICE_UUID_BYTES_LE: [u8; 16] = [
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00, 0x81, 0x00, 0x49, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 ];
@@ -62,7 +62,7 @@ where
 
     relay.apply(app.relay_state());
     status_led.set(false);
-    info!("switcher-firmware boot");
+    info!("dongle boot");
     info!("device name prefix={}", DEVICE_NAME_PREFIX);
     info!("BLE service UUID {}", SERVICE_UUID);
     debug!("state UUID {}", STATE_UUID);

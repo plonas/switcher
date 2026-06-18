@@ -7,12 +7,12 @@ fn main() {
 
     if target != "thumbv7em-none-eabihf" {
         panic!(
-            "switcher-firmware must be built for `thumbv7em-none-eabihf`.\n\
+            "dongle must be built for `thumbv7em-none-eabihf`.\n\
              Use one of:\n\
              - `cargo build-firmware`\n\
              - `cargo check-firmware`\n\
              - `cargo run-firmware`\n\
-             - `cargo build -p switcher-firmware --target thumbv7em-none-eabihf`"
+             - `cargo build -p dongle --target thumbv7em-none-eabihf`"
         );
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "firmware",
+    "dongle",
     "hub",
     "switcher-protocol",
 ]

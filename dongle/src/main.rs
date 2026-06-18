@@ -12,7 +12,7 @@ use nrf_sdc::mpsl::MultiprotocolServiceLayer;
 use nrf_sdc::{self as sdc, mpsl};
 use panic_probe as _;
 use static_cell::StaticCell;
-use switcher_firmware::{board, trouble};
+use dongle::{board, trouble};
 use trouble_host::PacketPool;
 
 bind_interrupts!(struct Irqs {

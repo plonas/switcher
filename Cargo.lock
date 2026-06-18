@@ -939,6 +939,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "dongle"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.1.0",
+ "defmt-rtt",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-nrf",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "heapless 0.9.3",
+ "log",
+ "nrf-mpsl",
+ "nrf-sdc",
+ "panic-probe",
+ "static_cell",
+ "switcher-protocol",
+ "trouble-host",
+]
+
+[[package]]
 name = "doxygen-rs"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3015,29 +3038,6 @@ name = "supports-unicode"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7401a30af6cb5818bb64852270bb722533397edcfc7344954a38f420819ece2"
-
-[[package]]
-name = "switcher-firmware"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "defmt 1.1.0",
- "defmt-rtt",
- "embassy-executor",
- "embassy-futures",
- "embassy-nrf",
- "embassy-sync 0.8.0",
- "embassy-time",
- "heapless 0.9.3",
- "log",
- "nrf-mpsl",
- "nrf-sdc",
- "panic-probe",
- "static_cell",
- "switcher-protocol",
- "trouble-host",
-]
 
 [[package]]
 name = "switcher-hub"

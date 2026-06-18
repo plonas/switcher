@@ -31,5 +31,5 @@ jobs:
       - name: Matter build
         run: cargo check -p switcher-hub --features matter
 
-      - name: Firmware build
-        run: cargo check-firmware
+      - name: Dongle build
+        run: cargo check-dongle

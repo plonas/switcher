@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 extern crate std;
 
 pub const PROTOCOL_VERSION: u8 = 1;
-pub const DEVICE_NAME_PREFIX: &str = "switcher-dongle";
+pub const DEVICE_NAME_PREFIX: &str = "dongle";
 
 pub const SERVICE_UUID: &str = "0f0e0d0c-0b0a-4900-8100-001122334455";
 pub const STATE_UUID: &str = "0f0e0d0c-0b0a-4900-8101-001122334455";

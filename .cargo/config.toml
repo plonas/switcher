@@ -1,8 +1,8 @@
 [alias]
-build-firmware = "build -p switcher-firmware --target thumbv7em-none-eabihf"
-check-firmware = "check -p switcher-firmware --target thumbv7em-none-eabihf"
-run-firmware = "run -p switcher-firmware --target thumbv7em-none-eabihf"
-hex-firmware = "objcopy -p switcher-firmware --bin switcher-firmware --target thumbv7em-none-eabihf -- -O ihex target/thumbv7em-none-eabihf/debug/switcher-firmware.hex"
+build-dongle = "build -p dongle --target thumbv7em-none-eabihf"
+check-dongle = "check -p dongle --target thumbv7em-none-eabihf"
+run-dongle = "run -p dongle --target thumbv7em-none-eabihf"
+hex-dongle = "objcopy -p dongle --bin dongle --target thumbv7em-none-eabihf -- -O ihex target/thumbv7em-none-eabihf/debug/dongle.hex"
 
 [target.thumbv7em-none-eabihf]
 runner = "probe-rs run --chip nRF52840_xxAA --rtt-scan-memory"

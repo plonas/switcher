@@ -369,9 +369,9 @@ mod hardware_tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "requires a physical switcher dongle advertising over BLE"]
+    #[ignore = "requires a physical dongle advertising over BLE"]
     async fn btleplug_client_can_read_live_dongle() {
-        let preferred = std::env::var("SWITCHER_BLE_ADDRESS").ok();
+        let preferred = std::env::var("DONGLE_BLE_ADDRESS").ok();
         let client = BtleplugClient::new(preferred).await.unwrap();
         client.connect().await.unwrap();
         let _ = client.identity().await.unwrap();
