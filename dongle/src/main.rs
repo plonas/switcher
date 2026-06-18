@@ -5,7 +5,7 @@ use defmt::unwrap;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::config::{Config, Reg0Voltage};
-use embassy_nrf::mode::Async;
+use embassy_nrf::mode::Blocking;
 use embassy_nrf::peripherals::RNG;
 use embassy_nrf::{bind_interrupts, rng};
 use nrf_sdc::mpsl::MultiprotocolServiceLayer;
@@ -34,7 +34,7 @@ const L2CAP_RXQ: u8 = 3;
 
 fn build_sdc<'d, const N: usize>(
     peripherals: nrf_sdc::Peripherals<'d>,
-    rng: &'d mut rng::Rng<Async>,
+    rng: &'d mut rng::Rng<Blocking>,
     mpsl: &'d MultiprotocolServiceLayer,
     mem: &'d mut sdc::Mem<N>,
 ) -> Result<nrf_sdc::SoftdeviceController<'d>, nrf_sdc::Error> {
@@ -84,7 +84,7 @@ async fn main(spawner: Spawner) {
         p.PPI_CH17, p.PPI_CH18, p.PPI_CH20, p.PPI_CH21, p.PPI_CH22, p.PPI_CH23, p.PPI_CH24,
         p.PPI_CH25, p.PPI_CH26, p.PPI_CH27, p.PPI_CH28, p.PPI_CH29,
     );
-    let mut rng = rng::Rng::new(p.RNG, Irqs);
+    let mut rng = rng::Rng::new_blocking(p.RNG);
     let (relay, status_led) = board::outputs(p.P0_13, p.P0_08);
 
     let mut sdc_mem = sdc::Mem::<4720>::new();

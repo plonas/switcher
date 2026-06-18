@@ -17,7 +17,7 @@ anyhow = "1.0.86"
 async-trait = "0.1.81"
 async-io = "2.6.0"
 btleplug = "0.12.0"
-cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m = "0.7.7"
 cortex-m-rt = "0.7.5"
 defmt = "1.1.0"
 defmt-rtt = "1.2.0"
