@@ -59,6 +59,11 @@ where
     let mut app = FirmwareApp::new(*b"dongle01", [0, 2, 0]);
     let mut gatt = FirmwareGattServer::new();
     let boot_at = Instant::now();
+    let server = SwitcherServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
+        name: DEVICE_NAME,
+        appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
+    }))
+    .unwrap();
 
     relay.apply(app.relay_state());
     status_led.set(false);
@@ -72,12 +77,6 @@ where
 
     let _ = join(ble_task(runner), async {
         loop {
-            let server = SwitcherServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-                name: DEVICE_NAME,
-                appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
-            }))
-            .unwrap();
-
             sync_runtime(&mut app, &mut relay, &mut status_led, boot_at);
 
             match advertise(&mut peripheral, &server).await {
@@ -161,9 +160,10 @@ async fn gatt_events_task<P: PacketPool>(
     boot_at: Instant,
 ) -> Result<(), Error> {
     let state = server.switcher.state;
-    let command_handle = server.switcher.command.handle;
-    let health_handle = server.switcher.health.handle;
-    let identity_handle = server.switcher.identity.handle;
+    let state_uuid = state.uuid;
+    let command_uuid = server.switcher.command.uuid;
+    let health_uuid = server.switcher.health.uuid;
+    let identity_uuid = server.switcher.identity.uuid;
 
     loop {
         match conn.next().await {
@@ -175,28 +175,55 @@ async fn gatt_events_task<P: PacketPool>(
             GattConnectionEvent::Gatt { event } => {
                 sync_runtime(app, relay, status_led, boot_at);
                 let reply = match event {
-                    GattEvent::Read(event) if event.handle() == state.handle => {
-                        match gatt.read(GattCharacteristic::State, app) {
-                            Ok(GattValue::State(payload)) => event.accept_unprocessed(&payload),
-                            Err(error) => event.reject(map_read_error(error)),
-                            _ => event.reject(AttErrorCode::UNLIKELY_ERROR),
+                    GattEvent::Read(event) => {
+                        debug!("[gatt] read handle={}", event.handle());
+                        let characteristic = server
+                            .table()
+                            .find_characteristic_by_value_handle::<u8>(event.handle());
+
+                        match characteristic {
+                            Ok(characteristic) if characteristic.uuid == state_uuid => {
+                                debug!("[gatt] matched state characteristic");
+                                event.accept()
+                            }
+                            Ok(characteristic) if characteristic.uuid == health_uuid => {
+                                debug!("[gatt] matched health characteristic");
+                                match gatt.read(GattCharacteristic::Health, app) {
+                                    Ok(GattValue::Health(payload)) => event.accept_unprocessed(&payload),
+                                    Err(error) => event.reject(map_read_error(error)),
+                                    _ => event.reject(AttErrorCode::UNLIKELY_ERROR),
+                                }
+                            }
+                            Ok(characteristic) if characteristic.uuid == identity_uuid => {
+                                debug!("[gatt] matched identity characteristic");
+                                match gatt.read(GattCharacteristic::Identity, app) {
+                                    Ok(GattValue::Identity(payload)) => event.accept_unprocessed(&payload),
+                                    Err(error) => event.reject(map_read_error(error)),
+                                    _ => event.reject(AttErrorCode::UNLIKELY_ERROR),
+                                }
+                            }
+                            Ok(characteristic) => {
+                                warn!(
+                                    "[gatt] unhandled read handle={} end_handle={} cccd_handle={:?}",
+                                    characteristic.handle,
+                                    characteristic.end_handle,
+                                    characteristic.cccd_handle
+                                );
+                                event.accept()
+                            }
+                            Err(error) => {
+                                warn!("[gatt] unresolved read handle={} err={:?}", event.handle(), error);
+                                event.accept()
+                            }
                         }
                     }
-                    GattEvent::Read(event) if event.handle() == health_handle => {
-                        match gatt.read(GattCharacteristic::Health, app) {
-                            Ok(GattValue::Health(payload)) => event.accept_unprocessed(&payload),
-                            Err(error) => event.reject(map_read_error(error)),
-                            _ => event.reject(AttErrorCode::UNLIKELY_ERROR),
-                        }
-                    }
-                    GattEvent::Read(event) if event.handle() == identity_handle => {
-                        match gatt.read(GattCharacteristic::Identity, app) {
-                            Ok(GattValue::Identity(payload)) => event.accept_unprocessed(&payload),
-                            Err(error) => event.reject(map_read_error(error)),
-                            _ => event.reject(AttErrorCode::UNLIKELY_ERROR),
-                        }
-                    }
-                    GattEvent::Write(event) if event.handle() == command_handle => {
+                    GattEvent::Write(event)
+                        if server
+                            .table()
+                            .find_characteristic_by_value_handle::<u8>(event.handle())
+                            .map(|characteristic| characteristic.uuid == command_uuid)
+                            .unwrap_or(false) =>
+                    {
                         let mut payload = [0_u8; 8];
                         let mut len = 0;
                         event.with_data(|offset, data| {

@@ -24,4 +24,4 @@ debug = true
 lto = true
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "debug"

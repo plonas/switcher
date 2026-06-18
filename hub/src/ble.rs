@@ -10,6 +10,7 @@ use btleplug::{
     platform::{Adapter, Manager, Peripheral},
 };
 use futures::StreamExt;
+use log::debug;
 use switcher_protocol::{
     COMMAND_UUID, DEVICE_NAME_PREFIX, DeviceIdentity, HEALTH_UUID, HealthStatus, IDENTITY_UUID,
     RelayCommand, RelayState, SERVICE_UUID, STATE_UUID,
@@ -203,6 +204,17 @@ impl BtleplugClient {
             }
         }
 
+        // Some host BLE stacks, notably CoreBluetooth on macOS, may not expose
+        // enough advertisement metadata for reliable filtering during scan.
+        // Fall back to probing discovered peripherals by connecting and checking
+        // whether they expose the expected GATT service/characteristics.
+        let peripherals = self.adapter.peripherals().await?;
+        for peripheral in peripherals {
+            if let Some(peripheral) = self.probe_dongle_peripheral(peripheral).await? {
+                return Ok(peripheral);
+            }
+        }
+
         Err(anyhow!("no matching dongle found"))
     }
 
@@ -243,6 +255,53 @@ impl BtleplugClient {
         *self.current_address.lock().await = address;
         *self.peripheral.lock().await = Some(peripheral.clone());
         Ok(peripheral)
+    }
+
+    async fn probe_dongle_peripheral(&self, peripheral: Peripheral) -> Result<Option<Peripheral>> {
+        let probe_id = peripheral.id();
+        let connected = match self.connect_peripheral(peripheral.clone()).await {
+            Ok(peripheral) => peripheral,
+            Err(error) => {
+                debug!("BLE probe skipped for {:?}: {error}", probe_id);
+                return Ok(None);
+            }
+        };
+
+        if self.matches_connected_dongle(&connected) {
+            return Ok(Some(connected));
+        }
+
+        let _ = connected.disconnect().await;
+        Ok(None)
+    }
+
+    fn matches_connected_dongle(&self, peripheral: &Peripheral) -> bool {
+        let service_uuid = parse_uuid(SERVICE_UUID).ok();
+        let state_uuid = parse_uuid(STATE_UUID).ok();
+        let command_uuid = parse_uuid(COMMAND_UUID).ok();
+        let health_uuid = parse_uuid(HEALTH_UUID).ok();
+        let identity_uuid = parse_uuid(IDENTITY_UUID).ok();
+
+        let services = peripheral.services();
+        let has_service = service_uuid
+            .as_ref()
+            .is_some_and(|uuid| services.iter().any(|service| service.uuid == *uuid));
+
+        let characteristics = peripheral.characteristics();
+        let has_state = state_uuid
+            .as_ref()
+            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
+        let has_command = command_uuid
+            .as_ref()
+            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
+        let has_health = health_uuid
+            .as_ref()
+            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
+        let has_identity = identity_uuid
+            .as_ref()
+            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
+
+        has_service || (has_state && has_command && has_health && has_identity)
     }
 
     async fn spawn_notifications(&self, peripheral: Peripheral) -> Result<()> {
@@ -299,6 +358,24 @@ impl BtleplugClient {
     }
 }
 
+fn decode_exact_or_prefix<'a, const N: usize>(value: &'a [u8], label: &str) -> Result<&'a [u8]> {
+    if value.len() < N {
+        return Err(anyhow!(
+            "{label} payload too short: expected at least {N} bytes, got {}",
+            value.len()
+        ));
+    }
+
+    if value.len() > N {
+        debug!(
+            "{label} payload had trailing bytes: expected {N}, got {}, decoding prefix",
+            value.len()
+        );
+    }
+
+    Ok(&value[..N])
+}
+
 #[async_trait]
 impl BleBridgeClient for BtleplugClient {
     async fn connect(&self) -> Result<()> {
@@ -308,7 +385,7 @@ impl BleBridgeClient for BtleplugClient {
 
     async fn current_state(&self) -> Result<RelayState> {
         let value = self.read_characteristic(parse_uuid(STATE_UUID)?).await?;
-        Ok(RelayState::try_from(value.as_slice())?)
+        Ok(RelayState::try_from(decode_exact_or_prefix::<1>(&value, "state")?)?)
     }
 
     async fn send_command(&self, command: RelayCommand) -> Result<RelayState> {
@@ -319,12 +396,17 @@ impl BleBridgeClient for BtleplugClient {
 
     async fn health(&self) -> Result<HealthStatus> {
         let value = self.read_characteristic(parse_uuid(HEALTH_UUID)?).await?;
-        Ok(HealthStatus::try_from(value.as_slice())?)
+        Ok(HealthStatus::try_from(decode_exact_or_prefix::<{ HealthStatus::ENCODED_LEN }>(
+            &value,
+            "health",
+        )?)?)
     }
 
     async fn identity(&self) -> Result<DeviceIdentity> {
         let value = self.read_characteristic(parse_uuid(IDENTITY_UUID)?).await?;
-        Ok(DeviceIdentity::try_from(value.as_slice())?)
+        Ok(DeviceIdentity::try_from(
+            decode_exact_or_prefix::<{ DeviceIdentity::ENCODED_LEN }>(&value, "identity")?,
+        )?)
     }
 
     async fn address(&self) -> Result<Option<String>> {
