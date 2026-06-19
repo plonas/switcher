@@ -2,12 +2,11 @@ use std::{io::Write, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use env_logger::Env;
-use log::{info, warn};
 use hub::{
-    BridgeStatus, BtleplugClient, MatterBridgeNode, MatterNodeConfig, RelayBridge,
-    persistence::PersistedBridgeState,
+    BtleplugClient, BtleplugManager, DongleFleet, FleetSlot, HubConfig, MatterBridgeNode,
+    MatterNodeConfig, device_id::parse_device_id, persistence::PersistedHubState,
 };
-use switcher_protocol::RelayState;
+use log::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,36 +14,37 @@ async fn main() -> Result<()> {
         .format(|buf, record| writeln!(buf, "{}", record.args()))
         .init();
 
-    let persistence_path = PathBuf::from("hub-state.json");
-    let persisted = PersistedBridgeState::load(&persistence_path)?;
-    info!("loaded persisted bridge state: {:?}", persisted.relay_state);
+    let config_path = PathBuf::from("hub-config.json");
+    let state_path = PathBuf::from("hub-state.json");
 
-    let client = BtleplugClient::new(persisted.ble_address.clone()).await?;
-    let bridge = Arc::new(RelayBridge::new_with_status(
-        client,
-        BridgeStatus {
-            ble_address: persisted.ble_address.clone(),
-            connected: false,
-            relay_state: persisted.relay_state.unwrap_or(RelayState::Off),
-            health: persisted.health.clone(),
-            identity: persisted.identity.clone(),
-        },
-    ));
-    bridge.start_background_tasks().await;
+    let config = HubConfig::load(&config_path)?;
+    let persisted = PersistedHubState::load(&state_path)?;
+    info!("loaded {} registered dongles", config.dongles.len());
 
-    let matter = MatterBridgeNode::new(bridge.clone(), MatterNodeConfig::default());
+    let shared = BtleplugManager::new().await?;
+    let mut slots = Vec::with_capacity(config.dongles.len());
+
+    for registration in config.dongles {
+        let device_id = parse_device_id(&registration.device_id)?;
+        let state = persisted.state_for(&registration.device_id);
+        let client = BtleplugClient::new(
+            shared.clone(),
+            Some(device_id),
+            registration.preferred_ble_address.clone(),
+            state.last_seen_ble_address.clone(),
+        );
+        slots.push(FleetSlot::new(registration, client, state));
+    }
+
+    let fleet = Arc::new(DongleFleet::new(slots));
+    fleet.start_background_tasks().await;
+    fleet.spawn_persistence_task(state_path);
+
+    let matter = MatterBridgeNode::new(fleet.clone(), MatterNodeConfig::default());
     if let Err(error) = matter.run().await {
         warn!("Matter runtime not started: {error}");
+        core::future::pending::<()>().await;
     }
-
-    let status = bridge.status().await;
-    PersistedBridgeState {
-        ble_address: status.ble_address,
-        relay_state: Some(status.relay_state),
-        identity: status.identity,
-        health: status.health,
-    }
-    .save(&persistence_path)?;
 
     Ok(())
 }

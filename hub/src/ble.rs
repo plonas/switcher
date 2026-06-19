@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -17,6 +21,10 @@ use switcher_protocol::{
 };
 use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
+
+use crate::device_id::format_device_id;
+#[cfg(test)]
+use crate::device_id::parse_device_id;
 
 #[derive(Debug, Clone)]
 pub struct BleNotification {
@@ -66,9 +74,17 @@ impl Default for MockBleState {
 
 impl MockBleClient {
     pub fn new() -> Self {
+        Self::with_device(*b"dongle01", Some("AA:BB:CC:DD:EE:FF".into()))
+    }
+
+    pub fn with_device(device_id: [u8; 8], address: Option<String>) -> Self {
         let (tx, _) = broadcast::channel(8);
         Self {
-            inner: Arc::new(Mutex::new(MockBleState::default())),
+            inner: Arc::new(Mutex::new(MockBleState {
+                address,
+                identity: DeviceIdentity::new(device_id, [0, 1, 0]),
+                ..MockBleState::default()
+            })),
             tx,
         }
     }
@@ -148,16 +164,14 @@ impl BleBridgeClient for MockBleClient {
     }
 }
 
-pub struct BtleplugClient {
+pub struct BtleplugManager {
     adapter: Adapter,
-    preferred_address: Option<String>,
-    current_address: Mutex<Option<String>>,
-    peripheral: Mutex<Option<Peripheral>>,
-    tx: broadcast::Sender<BleNotification>,
+    discovery_lock: Mutex<()>,
+    claimed_addresses: Mutex<HashMap<String, [u8; 8]>>,
 }
 
-impl BtleplugClient {
-    pub async fn new(preferred_address: Option<String>) -> Result<Self> {
+impl BtleplugManager {
+    pub async fn new() -> Result<Arc<Self>> {
         let manager = Manager::new().await?;
         let adapter = manager
             .adapters()
@@ -166,15 +180,71 @@ impl BtleplugClient {
             .next()
             .ok_or_else(|| anyhow!("no BLE adapter found"))?;
 
+        Ok(Arc::new(Self {
+            adapter,
+            discovery_lock: Mutex::new(()),
+            claimed_addresses: Mutex::new(HashMap::new()),
+        }))
+    }
+
+    async fn is_claimed_by_other(
+        &self,
+        address: &str,
+        expected_device_id: Option<[u8; 8]>,
+    ) -> bool {
+        let claims = self.claimed_addresses.lock().await;
+        match claims.get(address) {
+            Some(owner) => Some(*owner) != expected_device_id,
+            None => false,
+        }
+    }
+
+    async fn claim(&self, address: String, expected_device_id: Option<[u8; 8]>) {
+        if let Some(device_id) = expected_device_id {
+            self.claimed_addresses.lock().await.insert(address, device_id);
+        }
+    }
+
+    async fn unclaim(&self, address: &str, expected_device_id: Option<[u8; 8]>) {
+        let Some(device_id) = expected_device_id else {
+            return;
+        };
+
+        let mut claims = self.claimed_addresses.lock().await;
+        if claims.get(address) == Some(&device_id) {
+            claims.remove(address);
+        }
+    }
+}
+
+pub struct BtleplugClient {
+    shared: Arc<BtleplugManager>,
+    expected_device_id: Option<[u8; 8]>,
+    preferred_address: Option<String>,
+    cached_address: Mutex<Option<String>>,
+    current_address: Mutex<Option<String>>,
+    peripheral: Mutex<Option<Peripheral>>,
+    tx: broadcast::Sender<BleNotification>,
+}
+
+impl BtleplugClient {
+    pub fn new(
+        shared: Arc<BtleplugManager>,
+        expected_device_id: Option<[u8; 8]>,
+        preferred_address: Option<String>,
+        cached_address: Option<String>,
+    ) -> Self {
         let (tx, _) = broadcast::channel(16);
 
-        Ok(Self {
-            adapter,
-            preferred_address,
+        Self {
+            shared,
+            expected_device_id,
+            preferred_address: preferred_address.and_then(|value| normalize_ble_address(&value)),
+            cached_address: Mutex::new(cached_address.and_then(|value| normalize_ble_address(&value))),
             current_address: Mutex::new(None),
             peripheral: Mutex::new(None),
             tx,
-        })
+        }
     }
 
     async fn ensure_peripheral(&self) -> Result<Peripheral> {
@@ -184,19 +254,31 @@ impl BtleplugClient {
             }
         }
 
-        self.adapter.start_scan(ScanFilter::default()).await?;
+        let _scan_guard = self.shared.discovery_lock.lock().await;
+        self.shared.adapter.start_scan(ScanFilter::default()).await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
 
-        let peripherals = self.adapter.peripherals().await?;
-        if let Some(peripheral) = self.find_preferred_peripheral(&peripherals).await? {
-            return self.connect_peripheral(peripheral).await;
+        let peripherals = self.shared.adapter.peripherals().await?;
+        let preferred = self.preferred_address.clone();
+        let cached = self.cached_address.lock().await.clone();
+
+        for address in candidate_addresses(preferred.as_deref(), cached.as_deref()) {
+            if let Some(peripheral) = self.find_by_address(&peripherals, &address).await? {
+                if let Some(peripheral) = self.try_connect_matching(peripheral).await? {
+                    return Ok(peripheral);
+                }
+            }
         }
 
-        for peripheral in peripherals {
+        let mut seen = HashSet::new();
+        for peripheral in &peripherals {
             let properties = peripheral.properties().await?;
             let Some(properties) = properties else {
                 continue;
             };
+
+            let address = properties.address.to_string();
+            seen.insert(address.clone());
 
             let matches_name = properties
                 .local_name
@@ -205,44 +287,47 @@ impl BtleplugClient {
                 .unwrap_or(false);
             let matches_service = properties.services.contains(&parse_uuid(SERVICE_UUID)?);
 
-            if matches_name || matches_service {
-                return self.connect_peripheral(peripheral).await;
-            }
-        }
-
-        // Some host BLE stacks, notably CoreBluetooth on macOS, may not expose
-        // enough advertisement metadata for reliable filtering during scan.
-        // Fall back to probing discovered peripherals by connecting and checking
-        // whether they expose the expected GATT service/characteristics.
-        let peripherals = self.adapter.peripherals().await?;
-        for peripheral in peripherals {
-            if let Some(peripheral) = self.probe_dongle_peripheral(peripheral).await? {
+            if (matches_name || matches_service)
+                && let Some(peripheral) = self.try_connect_matching(peripheral.clone()).await?
+            {
                 return Ok(peripheral);
             }
         }
 
-        Err(anyhow!("no matching dongle found"))
+        for peripheral in peripherals {
+            let Some(properties) = peripheral.properties().await? else {
+                continue;
+            };
+            let address = properties.address.to_string();
+            if seen.contains(&address) {
+                continue;
+            }
+
+            if let Some(peripheral) = self.try_connect_matching(peripheral).await? {
+                return Ok(peripheral);
+            }
+        }
+
+        Err(anyhow!(
+            "no matching dongle found{}",
+            self.expected_device_id
+                .map(|device_id| format!(" for device_id {}", format_device_id(&device_id)))
+                .unwrap_or_default()
+        ))
     }
 
-    async fn find_preferred_peripheral(
+    async fn find_by_address(
         &self,
         peripherals: &[Peripheral],
+        address: &str,
     ) -> Result<Option<Peripheral>> {
-        let Some(preferred) = self.preferred_address.as_deref() else {
-            return Ok(None);
-        };
-
         for peripheral in peripherals {
             let properties = peripheral.properties().await?;
             let Some(properties) = properties else {
                 continue;
             };
 
-            if properties
-                .address
-                .to_string()
-                .eq_ignore_ascii_case(preferred)
-            {
+            if properties.address.to_string().eq_ignore_ascii_case(address) {
                 return Ok(Some(peripheral.clone()));
             }
         }
@@ -250,46 +335,90 @@ impl BtleplugClient {
         Ok(None)
     }
 
-    async fn connect_peripheral(&self, peripheral: Peripheral) -> Result<Peripheral> {
-        peripheral.connect().await?;
-        peripheral.discover_services().await?;
-        self.spawn_notifications(peripheral.clone()).await?;
-        let address = peripheral
+    async fn try_connect_matching(&self, peripheral: Peripheral) -> Result<Option<Peripheral>> {
+        let raw_address = peripheral
             .properties()
             .await?
-            .and_then(|properties| normalize_ble_address(&properties.address.to_string()));
-        *self.current_address.lock().await = address;
-        *self.peripheral.lock().await = Some(peripheral.clone());
+            .map(|properties| properties.address.to_string());
+        let address = raw_address.as_deref().and_then(normalize_ble_address);
+
+        if let Some(address) = address.as_deref()
+            && self
+                .shared
+                .is_claimed_by_other(address, self.expected_device_id)
+                .await
+        {
+            return Ok(None);
+        }
+
+        let connected = match self.connect_peripheral(peripheral.clone()).await {
+            Ok(peripheral) => peripheral,
+            Err(error) => {
+                debug!("BLE connect skipped for {:?}: {error}", peripheral.id());
+                return Ok(None);
+            }
+        };
+
+        if !self.matches_connected_dongle(&connected) {
+            let _ = connected.disconnect().await;
+            return Ok(None);
+        }
+
+        let identity = match self.read_identity_from(&connected).await {
+            Ok(identity) => identity,
+            Err(error) => {
+                debug!("BLE identity probe failed for {:?}: {error}", connected.id());
+                let _ = connected.disconnect().await;
+                return Ok(None);
+            }
+        };
+
+        if let Some(expected_device_id) = self.expected_device_id
+            && identity.device_id != expected_device_id
+        {
+            debug!(
+                "BLE device_id mismatch: expected {}, found {}",
+                format_device_id(&expected_device_id),
+                format_device_id(&identity.device_id)
+            );
+            let _ = connected.disconnect().await;
+            return Ok(None);
+        }
+
+        self.spawn_notifications(connected.clone()).await?;
+        if let Some(address) = address {
+            self.shared
+                .claim(address.clone(), self.expected_device_id)
+                .await;
+            *self.current_address.lock().await = Some(address.clone());
+            *self.cached_address.lock().await = Some(address);
+        }
+        *self.peripheral.lock().await = Some(connected.clone());
+
+        Ok(Some(connected))
+    }
+
+    async fn connect_peripheral(&self, peripheral: Peripheral) -> Result<Peripheral> {
+        if !peripheral.is_connected().await.unwrap_or(false) {
+            peripheral.connect().await?;
+        }
+        peripheral.discover_services().await?;
         Ok(peripheral)
     }
 
     async fn clear_peripheral(&self, disconnect: bool) -> Result<()> {
         let previous = self.peripheral.lock().await.take();
-        if disconnect {
-            if let Some(peripheral) = previous {
-                let _ = peripheral.disconnect().await;
-            }
+        let current_address = self.current_address.lock().await.take();
+
+        if let Some(address) = current_address {
+            self.shared.unclaim(&address, self.expected_device_id).await;
         }
-        *self.current_address.lock().await = None;
+
+        if disconnect && let Some(peripheral) = previous {
+            let _ = peripheral.disconnect().await;
+        }
+
         Ok(())
-    }
-
-    async fn probe_dongle_peripheral(&self, peripheral: Peripheral) -> Result<Option<Peripheral>> {
-        let probe_id = peripheral.id();
-        let connected = match self.connect_peripheral(peripheral.clone()).await {
-            Ok(peripheral) => peripheral,
-            Err(error) => {
-                debug!("BLE probe skipped for {:?}: {error}", probe_id);
-                return Ok(None);
-            }
-        };
-
-        if self.matches_connected_dongle(&connected) {
-            return Ok(Some(connected));
-        }
-
-        let _ = connected.disconnect().await;
-        Ok(None)
     }
 
     fn matches_connected_dongle(&self, peripheral: &Peripheral) -> bool {
@@ -305,18 +434,26 @@ impl BtleplugClient {
             .is_some_and(|uuid| services.iter().any(|service| service.uuid == *uuid));
 
         let characteristics = peripheral.characteristics();
-        let has_state = state_uuid
-            .as_ref()
-            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
-        let has_command = command_uuid
-            .as_ref()
-            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
-        let has_health = health_uuid
-            .as_ref()
-            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
-        let has_identity = identity_uuid
-            .as_ref()
-            .is_some_and(|uuid| characteristics.iter().any(|characteristic| characteristic.uuid == *uuid));
+        let has_state = state_uuid.as_ref().is_some_and(|uuid| {
+            characteristics
+                .iter()
+                .any(|characteristic| characteristic.uuid == *uuid)
+        });
+        let has_command = command_uuid.as_ref().is_some_and(|uuid| {
+            characteristics
+                .iter()
+                .any(|characteristic| characteristic.uuid == *uuid)
+        });
+        let has_health = health_uuid.as_ref().is_some_and(|uuid| {
+            characteristics
+                .iter()
+                .any(|characteristic| characteristic.uuid == *uuid)
+        });
+        let has_identity = identity_uuid.as_ref().is_some_and(|uuid| {
+            characteristics
+                .iter()
+                .any(|characteristic| characteristic.uuid == *uuid)
+        });
 
         has_service || (has_state && has_command && has_health && has_identity)
     }
@@ -333,10 +470,10 @@ impl BtleplugClient {
 
         tokio::spawn(async move {
             while let Some(ValueNotification { uuid, value, .. }) = notifications.next().await {
-                if uuid == parse_uuid(STATE_UUID).unwrap() {
-                    if let Ok(state) = RelayState::try_from(value.as_slice()) {
-                        let _ = tx.send(BleNotification { state });
-                    }
+                if uuid == parse_uuid(STATE_UUID).unwrap()
+                    && let Ok(state) = RelayState::try_from(value.as_slice())
+                {
+                    let _ = tx.send(BleNotification { state });
                 }
             }
         });
@@ -354,6 +491,17 @@ impl BtleplugClient {
             .into_iter()
             .find(|characteristic| characteristic.uuid == uuid)
             .ok_or_else(|| anyhow!("missing characteristic {uuid}"))
+    }
+
+    async fn read_identity_from(&self, peripheral: &Peripheral) -> Result<DeviceIdentity> {
+        let characteristic = self.find_characteristic(peripheral, parse_uuid(IDENTITY_UUID)?)?;
+        let value = peripheral
+            .read(&characteristic)
+            .await
+            .context("failed to read identity characteristic while probing peripheral")?;
+        Ok(DeviceIdentity::try_from(
+            decode_exact_or_prefix::<{ DeviceIdentity::ENCODED_LEN }>(&value, "identity")?,
+        )?)
     }
 
     async fn read_characteristic(&self, uuid: Uuid) -> Result<Vec<u8>> {
@@ -401,10 +549,6 @@ impl BleBridgeClient for BtleplugClient {
     }
 
     async fn disconnect(&self) -> Result<()> {
-        // On macOS/CoreBluetooth, explicitly disconnecting a peripheral after a
-        // failed read can tear down btleplug's per-device event loop and make
-        // subsequent reconnect attempts unreliable. Dropping our cached handle
-        // is enough to force the next retry back through scanning/discovery.
         self.clear_peripheral(false).await
     }
 
@@ -448,7 +592,7 @@ pub fn metadata_map(
     health: &HealthStatus,
 ) -> HashMap<&'static str, String> {
     let mut map = HashMap::new();
-    map.insert("device_id", format!("{:02x?}", identity.device_id));
+    map.insert("device_id", format_device_id(&identity.device_id));
     map.insert(
         "firmware_version",
         format!(
@@ -462,7 +606,25 @@ pub fn metadata_map(
     map
 }
 
-fn normalize_ble_address(address: &str) -> Option<String> {
+fn candidate_addresses(preferred: Option<&str>, cached: Option<&str>) -> Vec<String> {
+    let mut addresses = Vec::new();
+
+    if let Some(address) = preferred.and_then(normalize_ble_address) {
+        addresses.push(address);
+    }
+
+    if let Some(address) = cached.and_then(normalize_ble_address)
+        && !addresses
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(&address))
+    {
+        addresses.push(address);
+    }
+
+    addresses
+}
+
+pub(crate) fn normalize_ble_address(address: &str) -> Option<String> {
     let trimmed = address.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("00:00:00:00:00:00") {
         None
@@ -472,14 +634,37 @@ fn normalize_ble_address(address: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod hardware_tests {
+mod tests {
     use super::*;
+
+    #[test]
+    fn candidate_addresses_prioritizes_preferred_then_cached() {
+        assert_eq!(
+            candidate_addresses(Some("AA:BB:CC:DD:EE:FF"), Some("11:22:33:44:55:66")),
+            vec![
+                "AA:BB:CC:DD:EE:FF".to_string(),
+                "11:22:33:44:55:66".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn candidate_addresses_deduplicates() {
+        assert_eq!(
+            candidate_addresses(Some("AA:BB:CC:DD:EE:FF"), Some("aa:bb:cc:dd:ee:ff")),
+            vec!["AA:BB:CC:DD:EE:FF".to_string()]
+        );
+    }
 
     #[tokio::test]
     #[ignore = "requires a physical dongle advertising over BLE"]
     async fn btleplug_client_can_read_live_dongle() {
+        let expected = std::env::var("DONGLE_DEVICE_ID")
+            .ok()
+            .map(|value| parse_device_id(&value).unwrap());
         let preferred = std::env::var("DONGLE_BLE_ADDRESS").ok();
-        let client = BtleplugClient::new(preferred).await.unwrap();
+        let shared = BtleplugManager::new().await.unwrap();
+        let client = BtleplugClient::new(shared, expected, preferred, None);
         client.connect().await.unwrap();
         let _ = client.identity().await.unwrap();
         let _ = client.health().await.unwrap();

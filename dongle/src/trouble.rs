@@ -10,13 +10,12 @@ use trouble_host::prelude::*;
 use crate::{
     FirmwareApp,
     ble::{FirmwareGattServer, GattCharacteristic, GattValue},
-    board::StatusLedOutput,
+    board::{self, StatusLedOutput},
     relay::RelayOutput,
 };
 
 const CONNECTIONS_MAX: usize = 1;
 const L2CAP_CHANNELS_MAX: usize = 2;
-const DEVICE_NAME: &str = "dongle01";
 const SERVICE_UUID_BYTES_LE: [u8; 16] = [
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00, 0x81, 0x00, 0x49, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 ];
@@ -56,11 +55,13 @@ where
     let runner = stack.runner();
     let mut peripheral = stack.peripheral();
 
-    let mut app = FirmwareApp::new(*b"dongle01", [0, 2, 0]);
+    let device_id = board::device_id();
+    let device_name = board::advertised_name(&device_id);
+    let mut app = FirmwareApp::new(device_id, [0, 2, 0]);
     let mut gatt = FirmwareGattServer::new();
     let boot_at = Instant::now();
     let server = SwitcherServer::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-        name: DEVICE_NAME,
+        name: device_name.as_str(),
         appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
     }))
     .unwrap();
@@ -69,6 +70,7 @@ where
     status_led.set(false);
     info!("dongle boot");
     info!("device name prefix={}", DEVICE_NAME_PREFIX);
+    info!("device name={}", device_name.as_str());
     info!("BLE service UUID {}", SERVICE_UUID);
     debug!("state UUID {}", STATE_UUID);
     debug!("command UUID {}", COMMAND_UUID);
@@ -79,7 +81,7 @@ where
         loop {
             sync_runtime(&mut app, &mut relay, &mut status_led, boot_at);
 
-            match advertise(&mut peripheral, &server).await {
+            match advertise(&mut peripheral, &server, device_name.as_str()).await {
                 Ok(conn) => {
                     if let Err(error) = gatt_events_task(
                         &server,
@@ -119,6 +121,7 @@ async fn ble_task<C: Controller, P: PacketPool>(mut runner: Runner<'_, C, P>) {
 async fn advertise<'values, 'server, C: Controller>(
     peripheral: &mut Peripheral<'values, C, DefaultPacketPool>,
     server: &'server SwitcherServer<'values>,
+    device_name: &str,
 ) -> Result<GattConnection<'values, 'server, DefaultPacketPool>, BleHostError<C::Error>> {
     let mut adv_data = [0; 31];
     let adv_len = AdStructure::encode_slice(
@@ -131,7 +134,7 @@ async fn advertise<'values, 'server, C: Controller>(
 
     let mut scan_data = [0; 31];
     let scan_len = AdStructure::encode_slice(
-        &[AdStructure::CompleteLocalName(DEVICE_NAME.as_bytes())],
+        &[AdStructure::CompleteLocalName(device_name.as_bytes())],
         &mut scan_data,
     )?;
 
@@ -144,7 +147,7 @@ async fn advertise<'values, 'server, C: Controller>(
             },
         )
         .await?;
-    info!("[adv] advertising as {}", DEVICE_NAME);
+    info!("[adv] advertising as {}", device_name);
     let conn = advertiser.accept().await?.with_attribute_server(server)?;
     info!("[adv] connection established");
     Ok(conn)
